@@ -12,7 +12,7 @@ load_dotenv()
 # --- Récupération des variables d'environnement (.env) ---
 DB_USER = os.getenv("MYSQL_USER")
 DB_PASSWORD = quote_plus(os.getenv("MYSQL_PASSWORD"))
-DB_HOST = "db"   # Dans Docker, le service MySQL s'appelle "db"
+DB_HOST = "fastapiapp-server.mysql.database.azure.com"   # Dans Docker, le service MySQL s'appelle "db"
 DB_PORT = os.getenv("DB_PORT", "3306")  # 3306 par défaut
 DB_NAME = os.getenv("MYSQL_DATABASE")
 
