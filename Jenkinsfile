@@ -21,6 +21,32 @@ pipeline {
             }
         }
 
+        // ================= NOUVEAU STAGE =================
+        stage('Deploy MySQL Database') {
+            steps {
+                script {
+                    withCredentials([
+                        file(credentialsId: 'KUBCONFIG', variable: 'KUBECONFIG_FILE')
+                    ]) {
+                        bat """
+                            set KUBECONFIG=%KUBECONFIG_FILE%
+                            
+                            echo "🐬 Déploiement MySQL..."
+                            kubectl apply -f deploiementSQL/deploy_sql.yml
+                            kubectl apply -f deploiementSQL/service_sql.yml
+                            
+                            echo "⏳ Attente démarrage MySQL..."
+                            timeout /t 45 /nobreak
+                            
+                            echo "✅ MySQL déployé"
+                            kubectl get pods -l app=mysql
+                        """
+                    }
+                }
+            }
+        }
+        // =================================================
+
         stage('Build Docker Image') {
             steps {
                 script {
