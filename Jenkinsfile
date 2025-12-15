@@ -3,10 +3,12 @@ pipeline {
 
     environment {
         IMAGE_NAME = "service_users"
-        IMAGE_TAG = "latest"
+        IMAGE_TAG  = "latest"
+        NAMESPACE  = "dev"
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 checkout([
@@ -16,167 +18,106 @@ pipeline {
                         url: 'https://github.com/wafae-an/gestion_utilisateurs.git'
                     ]]
                 ])
-                
                 bat 'dir /s /b *.yml *.yaml Dockerfile'
             }
         }
 
-        // ================= NOUVEAU STAGE =================
-        stage('Deploy MySQL Database') {
+        stage('Prepare Namespace') {
             steps {
-                script {
-                    withCredentials([
-                        file(credentialsId: 'KUBCONFIG', variable: 'KUBECONFIG_FILE')
-                    ]) {
-                        bat """
-                            set KUBECONFIG=%KUBECONFIG_FILE%
-                            
-                            echo "🐬 Déploiement MySQL..."
-                            kubectl apply -f deploiementSQL/deploy_sql.yml
-                            kubectl apply -f deploiementSQL/service_sql.yml
-                            
-                            echo "⏳ Attente démarrage MySQL..."
-                            timeout /t 45 /nobreak
-                            
-                            echo "✅ MySQL déployé"
-                            kubectl get pods -l app=mysql
-                        """
-                    }
+                withCredentials([file(credentialsId: 'KUBCONFIG', variable: 'KUBECONFIG_FILE')]) {
+                    bat """
+                        set KUBECONFIG=%KUBECONFIG_FILE%
+                        kubectl create namespace %NAMESPACE% --dry-run=client -o yaml | kubectl apply -f -
+                        kubectl get namespaces
+                    """
                 }
             }
         }
-        // =================================================
+
+        stage('Deploy MySQL Database') {
+            steps {
+                withCredentials([file(credentialsId: 'KUBCONFIG', variable: 'KUBECONFIG_FILE')]) {
+                    bat """
+                        set KUBECONFIG=%KUBECONFIG_FILE%
+
+                        echo 🐬 Deploying MySQL...
+                        kubectl apply -n %NAMESPACE% -f deploiementSQL/deploy_sql.yml
+                        kubectl apply -n %NAMESPACE% -f deploiementSQL/service_sql.yml
+
+                        echo ⏳ Waiting for MySQL to be READY...
+                        kubectl wait --for=condition=Ready pod -l app=mysql -n %NAMESPACE% --timeout=180s
+
+                        echo ✅ MySQL is ready
+                        kubectl get pods -n %NAMESPACE% -l app=mysql
+                    """
+                }
+            }
+        }
 
         stage('Build Docker Image') {
             steps {
-                script {
-                    withCredentials([
-                        string(credentialsId: 'DOCKERHUB_USERNAME', variable: 'DOCKER_USER')
-                    ]) {
-                        echo "Building Docker image as ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}"
-                        
-                        bat """
-                            echo ===== BUILDING DOCKER IMAGE =====
-                            docker build -t %DOCKER_USER%/${IMAGE_NAME}:${IMAGE_TAG} ./service_users
-                            echo Docker images after build:
-                            docker images | findstr "%DOCKER_USER%"
-                        """
-                    }
+                withCredentials([string(credentialsId: 'DOCKERHUB_USERNAME', variable: 'DOCKER_USER')]) {
+                    bat """
+                        echo ===== BUILDING IMAGE =====
+                        docker build -t %DOCKER_USER%/%IMAGE_NAME%:%IMAGE_TAG% ./service_users
+                        docker images | findstr "%DOCKER_USER%"
+                    """
                 }
             }
         }
 
         stage('Login Docker Hub') {
             steps {
-                script {
-                    withCredentials([
-                        string(credentialsId: 'DOCKERHUB_USERNAME', variable: 'DOCKER_USER'),
-                        string(credentialsId: 'DOCKERHUB_TOKEN', variable: 'DOCKER_PASS')
-                    ]) {
-                        echo "Logging into Docker Hub as ${DOCKER_USER}"
-                        
-                        bat """
-                            echo ===== LOGGING INTO DOCKER HUB =====
-                            echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
-                            
-                            if %errorlevel% neq 0 (
-                                echo ERROR: Docker login failed!
-                                exit 1
-                            )
-                            
-                            echo Docker Hub login successful!
-                        """
-                    }
+                withCredentials([
+                    string(credentialsId: 'DOCKERHUB_USERNAME', variable: 'DOCKER_USER'),
+                    string(credentialsId: 'DOCKERHUB_TOKEN', variable: 'DOCKER_PASS')
+                ]) {
+                    bat """
+                        echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
+                    """
                 }
             }
         }
 
         stage('Push Docker Image') {
             steps {
-                script {
-                    withCredentials([
-                        string(credentialsId: 'DOCKERHUB_USERNAME', variable: 'DOCKER_USER')
-                    ]) {
-                        echo "Pushing image to Docker Hub..."
-                        
-                        bat """
-                            echo ===== PUSHING DOCKER IMAGE =====
-                            docker push %DOCKER_USER%/${IMAGE_NAME}:${IMAGE_TAG}
-                            
-                            if %errorlevel% neq 0 (
-                                echo ERROR: Docker push failed!
-                                exit 1
-                            )
-                            
-                            echo Image pushed successfully to Docker Hub!
-                        """
-                    }
+                withCredentials([string(credentialsId: 'DOCKERHUB_USERNAME', variable: 'DOCKER_USER')]) {
+                    bat """
+                        docker push %DOCKER_USER%/%IMAGE_NAME%:%IMAGE_TAG%
+                    """
                 }
             }
         }
 
-        stage('Deploy to Kubernetes') {
+        stage('Deploy Application to Kubernetes') {
             steps {
-                script {
-                    withCredentials([
-                        file(credentialsId: 'KUBCONFIG', variable: 'KUBECONFIG_FILE')
-                    ]) {
-                        echo "Deploying to Kubernetes..."
-                        
-                        bat """
-                            echo ===== DEPLOYING TO KUBERNETES =====
-                            echo Kubeconfig file: %KUBECONFIG_FILE%
-                            
-                            set KUBECONFIG=%KUBECONFIG_FILE%
-                            
-                            echo Kubernetes cluster info:
-                            kubectl cluster-info
-                            
-                            echo Applying deployment...
-                            kubectl apply -f ./service_users/k8s/deploy.yml --dry-run=client
-                            kubectl apply -f ./service_users/k8s/deploy.yml
-                            
-                            echo Applying service...
-                            kubectl apply -f ./service_users/k8s/service.yml --dry-run=client
-                            kubectl apply -f ./service_users/k8s/service.yml
-                            
-                            echo Current deployments:
-                            kubectl get deployments -o wide
-                            
-                            echo Current services:
-                            kubectl get services -o wide
-                            
-                            echo Deployment completed successfully!
-                        """
-                    }
+                withCredentials([file(credentialsId: 'KUBCONFIG', variable: 'KUBECONFIG_FILE')]) {
+                    bat """
+                        set KUBECONFIG=%KUBECONFIG_FILE%
+
+                        echo 🚀 Deploying application...
+                        kubectl apply -n %NAMESPACE% -f ./service_users/k8s/deploy.yml
+                        kubectl apply -n %NAMESPACE% -f ./service_users/k8s/service.yml
+
+                        kubectl get deployments -n %NAMESPACE%
+                        kubectl get services -n %NAMESPACE%
+                    """
                 }
             }
         }
 
         stage('Verify Deployment') {
             steps {
-                script {
-                    withCredentials([
-                        file(credentialsId: 'KUBCONFIG', variable: 'KUBECONFIG_FILE')
-                    ]) {
-                        bat """
-                            set KUBECONFIG=%KUBECONFIG_FILE%
-                            
-                            echo ===== VERIFYING DEPLOYMENT =====
-                            echo Waiting for pods to be ready...
-                            
-                            timeout /t 30 /nobreak
-                            
-                            echo Pods status:
-                            kubectl get pods -o wide
-                            
-                            echo Pods details:
-                            kubectl describe pods --selector=app=service-users
-                            
-                            echo Service details:
-                            kubectl describe service service-users
-                        """
-                    }
+                withCredentials([file(credentialsId: 'KUBCONFIG', variable: 'KUBECONFIG_FILE')]) {
+                    bat """
+                        set KUBECONFIG=%KUBECONFIG_FILE%
+
+                        echo 🔎 Verifying pods...
+                        kubectl wait --for=condition=Ready pod -l app=service-users -n %NAMESPACE% --timeout=120s
+
+                        kubectl get pods -n %NAMESPACE% -o wide
+                        kubectl describe service service-users -n %NAMESPACE%
+                    """
                 }
             }
         }
@@ -184,19 +125,13 @@ pipeline {
 
     post {
         always {
-            echo "Pipeline execution completed"
-            
-            bat """
-                echo ===== CLEANUP =====
-                docker logout 2>nul || echo "Already logged out or login failed"
-                echo Cleanup done.
-            """
+            bat 'docker logout || echo Already logged out'
         }
         success {
-            echo "✅ Pipeline succeeded!"
+            echo "✅ Pipeline completed successfully"
         }
         failure {
-            echo "❌ Pipeline failed!"
+            echo "❌ Pipeline failed — check logs"
         }
     }
 }
