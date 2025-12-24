@@ -27,7 +27,7 @@ pipeline {
                 withCredentials([file(credentialsId: 'KUBCONFIG', variable: 'KUBECONFIG_FILE')]) {
                     bat """
                         set KUBECONFIG=%KUBECONFIG_FILE%
-                        kubectl create namespace %NAMESPACE% --dry-run=client -o yaml | kubectl apply -f -
+                        kubectl create namespace %NAMESPACE% --dry-run=client -o yaml ^| kubectl apply -f -
                         kubectl get namespaces
                     """
                 }
@@ -40,14 +40,13 @@ pipeline {
                     bat """
                         set KUBECONFIG=%KUBECONFIG_FILE%
 
-                        echo 🐬 Deploying MySQL...
+                        echo Deploying MySQL...
                         kubectl apply -n %NAMESPACE% -f deploiementSQL/deploy_sql.yml
                         kubectl apply -n %NAMESPACE% -f deploiementSQL/service_sql.yml
 
-                        echo ⏳ Waiting for MySQL to be READY...
+                        echo Waiting for MySQL to be READY...
                         kubectl wait --for=condition=Ready pod -l app=mysql -n %NAMESPACE% --timeout=180s
 
-                        echo ✅ MySQL is ready
                         kubectl get pods -n %NAMESPACE% -l app=mysql
                     """
                 }
@@ -58,7 +57,7 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: 'DOCKERHUB_USERNAME', variable: 'DOCKER_USER')]) {
                     bat """
-                        echo ===== BUILDING IMAGE =====
+                        echo BUILDING IMAGE
                         docker build -t %DOCKER_USER%/%IMAGE_NAME%:%IMAGE_TAG% ./service_users
                         docker images | findstr "%DOCKER_USER%"
                     """
@@ -95,7 +94,7 @@ pipeline {
                     bat """
                         set KUBECONFIG=%KUBECONFIG_FILE%
 
-                        echo 🚀 Deploying application...
+                        echo Deploying application...
                         kubectl apply -n %NAMESPACE% -f ./service_users/k8s/deploy.yml
                         kubectl apply -n %NAMESPACE% -f ./service_users/k8s/service.yml
 
@@ -112,8 +111,8 @@ pipeline {
                     bat """
                         set KUBECONFIG=%KUBECONFIG_FILE%
 
-                        echo 🔎 Verifying pods...
-                        kubectl wait --for=condition=Ready pod -l app=service-users -n %NAMESPACE% --timeout=120s
+                        echo Verifying pods...
+                        kubectl wait --for=condition=Ready pod -l app=fastapi -n %NAMESPACE% --timeout=120s
 
                         kubectl get pods -n %NAMESPACE% -o wide
                         kubectl describe service service-users -n %NAMESPACE%
@@ -128,10 +127,10 @@ pipeline {
             bat 'docker logout || echo Already logged out'
         }
         success {
-            echo "✅ Pipeline completed successfully"
+            echo "Pipeline completed successfully"
         }
         failure {
-            echo "❌ Pipeline failed — check logs"
+            echo "Pipeline failed — check logs"
         }
     }
 }
