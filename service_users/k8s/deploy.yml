@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: service-users-deployment   # <-- ici tu définis le nom du Deployment
+  name: service-users-deployment
   labels:
     app: fastapi
 spec:
@@ -19,3 +19,15 @@ spec:
           image: ${{ secrets.DOCKERHUB_USERNAME }}/service_users:latest
           ports:
             - containerPort: 8000
+          env:
+            - name: MYSQL_USER
+              value: fastapi_user
+            - name: MYSQL_DATABASE
+              value: gestion_utilisateurs
+            - name: DB_PORT
+              value: "3306"
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_PASSWORD

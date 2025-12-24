@@ -1,12 +1,11 @@
-# mysql-service.yml
 apiVersion: v1
 kind: Service
 metadata:
   name: mysql-service
 spec:
+  type: ClusterIP   # accessible uniquement dans le cluster
   selector:
     app: mysql
   ports:
-  - port: 3306
-    targetPort: 3306
-  type: ClusterIP
+    - port: 3306
+      targetPort: 3306
